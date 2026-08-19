@@ -1,3 +1,5 @@
+import type { VercelRequest, VercelResponse } from '@vercel/node'
+
 interface GeminiResponse {
   candidates?: {
     content?: {
@@ -9,24 +11,26 @@ interface GeminiResponse {
   }
 }
 
-export default async function handler(request: Request) {
+export default async function handler(
+  request: VercelRequest,
+  response: VercelResponse,
+) {
   if (request.method !== 'POST') {
-    return Response.json({ error: 'Método não permitido.' }, { status: 405 })
+    return response.status(405).json({ error: 'Método não permitido.' })
   }
 
   const apiKey = process.env.GEMINI_API_KEY?.trim()
 
   if (!apiKey) {
-    return Response.json(
-      { error: 'GEMINI_API_KEY não configurada na Vercel.' },
-      { status: 500 },
-    )
+    return response
+      .status(500)
+      .json({ error: 'GEMINI_API_KEY não configurada na Vercel.' })
   }
 
-  const { prompt } = (await request.json()) as { prompt?: string }
+  const { prompt } = (request.body ?? {}) as { prompt?: string }
 
   if (!prompt?.trim()) {
-    return Response.json({ error: 'Prompt não informado.' }, { status: 400 })
+    return response.status(400).json({ error: 'Prompt não informado.' })
   }
 
   const geminiUrl = new URL(
@@ -34,32 +38,36 @@ export default async function handler(request: Request) {
   )
   geminiUrl.searchParams.set('key', apiKey)
 
-  const response = await fetch(geminiUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { responseMimeType: 'application/json' },
-    }),
-  })
+  try {
+    const geminiResponse = await fetch(geminiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { responseMimeType: 'application/json' },
+      }),
+    })
 
-  const body = (await response.json()) as GeminiResponse
+    const body = (await geminiResponse.json()) as GeminiResponse
 
-  if (!response.ok) {
-    return Response.json(
-      { error: body.error?.message ?? 'O Gemini recusou a requisição.' },
-      { status: response.status },
-    )
+    if (!geminiResponse.ok) {
+      return response.status(geminiResponse.status).json({
+        error: body.error?.message ?? 'O Gemini recusou a requisição.',
+      })
+    }
+
+    const text = body.candidates?.[0]?.content?.parts?.[0]?.text
+
+    if (!text) {
+      return response
+        .status(502)
+        .json({ error: 'O Gemini retornou uma resposta vazia.' })
+    }
+
+    return response.status(200).json({ text })
+  } catch {
+    return response
+      .status(502)
+      .json({ error: 'Não foi possível conectar ao Gemini.' })
   }
-
-  const text = body.candidates?.[0]?.content?.parts?.[0]?.text
-
-  if (!text) {
-    return Response.json(
-      { error: 'O Gemini retornou uma resposta vazia.' },
-      { status: 502 },
-    )
-  }
-
-  return Response.json({ text })
 }
