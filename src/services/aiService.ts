@@ -29,10 +29,14 @@ export interface InsightData {
 }
 
 const API_KEY = String(import.meta.env.VITE_GEMINI_API_KEY)
-const MODEL_NAME = 'gemini-3.6-flash'
+const MODEL_NAME = 'gemini-2.5-flash'
 const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${API_KEY}`
 
 const callGeminiAPI = async (prompt: string) => {
+  if (!import.meta.env.VITE_GEMINI_API_KEY) {
+    throw new Error('Chave da API do Gemini não configurada.')
+  }
+
   const response = await fetch(GEMINI_API_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -42,7 +46,10 @@ const callGeminiAPI = async (prompt: string) => {
   })
 
   if (!response.ok) {
-    throw new Error(`Erro na requisição: ${response.status}`)
+    const errorBody = await response.text()
+    throw new Error(
+      `Erro na requisição do Gemini (${response.status}): ${errorBody}`,
+    )
   }
 
   return (await response.json()) as GeminiResponse
